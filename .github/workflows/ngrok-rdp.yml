@@ -1,0 +1,47 @@
+name: Windows RDP with ngrok
+
+on:
+  workflow_dispatch:  # Запуск вручную
+
+jobs:
+  rdp:
+    runs-on: windows-latest
+
+    steps:
+    - name: Enable RDP
+      shell: powershell
+      run: |
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -name "fDenyTSConnections" -Value 0
+        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+        Set-NetFirewallRule -DisplayGroup "Remote Desktop" -Enabled True -Profile Any
+        New-NetFirewallRule -DisplayName "RDP-ngrok" -Direction Inbound -Protocol TCP -LocalPort 3389 -Action Allow -Profile Any
+        Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -name "UserAuthentication" -Value 0
+        net user rdpuser "Dahood2525!" /add
+        net localgroup administrators rdpuser /add
+
+    - name: Install ngrok
+      shell: powershell
+      run: |
+        Invoke-WebRequest -Uri "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip" -OutFile ngrok.zip
+        Expand-Archive ngrok.zip -DestinationPath ngrok
+        .\ngrok\ngrok.exe config add-authtoken ${{ secrets.NGROK_AUTH_TOKEN }}
+
+    - name: Start ngrok tunnel
+      shell: powershell
+      run: |
+        Start-Process -FilePath ".\ngrok\ngrok.exe" -ArgumentList "tcp 3389" -NoNewWindow
+        Start-Sleep -Seconds 20
+
+    - name: Show ngrok address
+      shell: powershell
+      run: |
+        Start-Sleep -Seconds 10
+        $log = Get-Content -Path "ngrok.log" -Tail 50 -ErrorAction SilentlyContinue
+        $address = $log | Select-String "tcp://.*\.tcp\.ngrok\.io:\d+" | ForEach-Object { $_.Matches.Value }
+        Write-Output "Ngrok address: $address"
+        if (-not $address) { Write-Output "Address not found yet, check ngrok.log" }
+
+    - name: Keep alive
+      shell: powershell
+      run: |
+        while ($true) { Start-Sleep -Seconds 300; Write-Output "Session alive" }
